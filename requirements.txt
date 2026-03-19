@@ -1,0 +1,10 @@
+biopython>=1.84
+markdown>=3.7
+matplotlib>=3.9.2
+numpy>=2.1.2
+py3Dmol>=2.4.2
+PyYAML>=6.0.2
+requests>=2.32.3
+streamlit>=1.40.0
+typer>=0.12.5
+pytest>=8.3.3

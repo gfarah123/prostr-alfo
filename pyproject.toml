@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prostr-alfo"
+version = "0.1.0"
+description = "Protein structure and mutation analysis using AlphaFold DB data."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "Codex" }
+]
+dependencies = [
+  "biopython>=1.84",
+  "markdown>=3.7",
+  "matplotlib>=3.9.2",
+  "numpy>=2.1.2",
+  "py3Dmol>=2.4.2",
+  "PyYAML>=6.0.2",
+  "requests>=2.32.3",
+  "streamlit>=1.40.0",
+  "typer>=0.12.5"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.3"
+]
+
+[project.scripts]
+prostr-alfo = "prostr_alfo.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

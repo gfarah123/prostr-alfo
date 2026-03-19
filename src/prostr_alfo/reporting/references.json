@@ -1,0 +1,38 @@
+[
+  {
+    "id": "AlphaFold",
+    "authors": "Jumper J, Evans R, Pritzel A, et al.",
+    "title": "Highly accurate protein structure prediction with AlphaFold",
+    "journal": "Nature 596, 583-589",
+    "year": 2021,
+    "doi": "10.1038/s41586-021-03819-2",
+    "url": "https://doi.org/10.1038/s41586-021-03819-2"
+  },
+  {
+    "id": "AlphaFoldProteome",
+    "authors": "Tunyasuvunakool K, Adler J, Wu Z, et al.",
+    "title": "Highly accurate protein structure prediction for the human proteome",
+    "journal": "Nature 596, 590-596",
+    "year": 2021,
+    "doi": "10.1038/s41586-021-03828-1",
+    "url": "https://doi.org/10.1038/s41586-021-03828-1"
+  },
+  {
+    "id": "DSSP",
+    "authors": "Kabsch W, Sander C",
+    "title": "Dictionary of protein secondary structure: pattern recognition of hydrogen-bonded and geometrical features",
+    "journal": "Biopolymers 22(12), 2577-2637",
+    "year": 1983,
+    "doi": "10.1002/bip.360221211",
+    "url": "https://doi.org/10.1002/bip.360221211"
+  },
+  {
+    "id": "MissenseMechanisms",
+    "authors": "Stefl S, Nishi H, Petukh M, Panchenko AR, Alexov E",
+    "title": "Molecular mechanisms of disease-causing missense mutations",
+    "journal": "Journal of Molecular Biology 425(21), 3919-3936",
+    "year": 2013,
+    "doi": "10.1016/j.jmb.2013.02.041",
+    "url": "https://doi.org/10.1016/j.jmb.2013.02.041"
+  }
+]
