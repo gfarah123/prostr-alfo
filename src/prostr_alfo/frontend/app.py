@@ -98,47 +98,59 @@ def render_structure_panel(
     components.html(view._make_html(), height=580)
 
 
-def collect_request() -> AnalysisRequest:
+def collect_request() -> tuple[AnalysisRequest, bool]:
     """Collect one analysis request from the UI."""
 
-    input_mode = st.radio("Input type", ["UniProt ID", "Raw sequence", "FASTA upload"], horizontal=True)
-    uniprot_id = st.text_input("UniProt ID", placeholder="P05067").strip().upper()
-    mutation_text = st.text_input("Mutations", placeholder="A23V;C105S").strip()
-    label = st.text_input("Run label", placeholder="optional-analysis-name").strip() or None
+    with st.form("analysis_form"):
+        input_mode = st.radio("Input type", ["UniProt ID", "Raw sequence", "FASTA upload"], horizontal=True)
+        uniprot_id = st.text_input("UniProt ID", placeholder="P05067").strip().upper()
+        mutation_text = st.text_input("Mutations", placeholder="A23V;C105S").strip()
+        label = st.text_input("Run label", placeholder="optional-analysis-name").strip() or None
 
-    if input_mode == "UniProt ID":
-        return AnalysisRequest(uniprot_id=uniprot_id or None, mutations=mutation_text or None, label=label)
+        if input_mode == "UniProt ID":
+            request = AnalysisRequest(uniprot_id=uniprot_id or None, mutations=mutation_text or None, label=label)
+            submitted = st.form_submit_button("Run Analysis", type="primary", use_container_width=True)
+            return request, submitted
 
-    if input_mode == "Raw sequence":
-        sequence = st.text_area("Protein sequence", height=180, placeholder="MSTNPKPQR...")
-        return AnalysisRequest(
-            uniprot_id=uniprot_id or None,
-            sequence=sequence or None,
+        if input_mode == "Raw sequence":
+            sequence = st.text_area("Protein sequence", height=180, placeholder="MSTNPKPQR...")
+            request = AnalysisRequest(
+                uniprot_id=uniprot_id or None,
+                sequence=sequence or None,
+                mutations=mutation_text or None,
+                label=label,
+            )
+            submitted = st.form_submit_button("Run Analysis", type="primary", use_container_width=True)
+            return request, submitted
+
+        uploaded = st.file_uploader("Upload FASTA", type=["fasta", "fa", "faa", "txt"])
+        sequence = None
+        inferred_uniprot = None
+        if uploaded is not None:
+            header, sequence = parse_fasta_text(uploaded.getvalue().decode("utf-8"))
+            inferred_uniprot = infer_uniprot_id_from_header(header)
+            st.caption(f"Loaded FASTA header: {header}")
+            if inferred_uniprot and not uniprot_id:
+                st.caption(f"Inferred UniProt accession from FASTA header: {inferred_uniprot}")
+        request = AnalysisRequest(
+            uniprot_id=uniprot_id or inferred_uniprot,
+            sequence=sequence,
             mutations=mutation_text or None,
             label=label,
         )
-
-    uploaded = st.file_uploader("Upload FASTA", type=["fasta", "fa", "faa", "txt"])
-    sequence = None
-    inferred_uniprot = None
-    if uploaded is not None:
-        header, sequence = parse_fasta_text(uploaded.getvalue().decode("utf-8"))
-        inferred_uniprot = infer_uniprot_id_from_header(header)
-        st.caption(f"Loaded FASTA header: {header}")
-        if inferred_uniprot and not uniprot_id:
-            st.caption(f"Inferred UniProt accession from FASTA header: {inferred_uniprot}")
-    return AnalysisRequest(
-        uniprot_id=uniprot_id or inferred_uniprot,
-        sequence=sequence,
-        mutations=mutation_text or None,
-        label=label,
-    )
+        submitted = st.form_submit_button("Run Analysis", type="primary", use_container_width=True)
+        return request, submitted
 
 
 def render_result(result) -> None:
     """Render analysis outputs."""
 
+    variant_evidence = getattr(result, "variant_evidence", [])
+    mutant_structure_path = getattr(result.report_artifacts, "mutant_structure_path", None)
+    submitted_mutations = ", ".join(assessment.mutation.code for assessment in result.mutation_assessments) or "none"
+
     st.success(f"Analysis finished in {result.run_directory}")
+    st.caption(f"Submitted mutations captured by the backend: {submitted_mutations}")
 
     if result.structure_analysis is not None:
         metric_a, metric_b, metric_c, metric_d = st.columns(4)
@@ -191,8 +203,8 @@ def render_result(result) -> None:
             st.info("No mutations were requested.")
 
     with tab_evidence:
-        if result.variant_evidence:
-            for evidence in result.variant_evidence:
+        if variant_evidence:
+            for evidence in variant_evidence:
                 st.markdown(f"### {evidence.mutation.code}")
                 info_a, info_b, info_c = st.columns(3)
                 info_a.metric("Exact curated match", "Yes" if evidence.matched else "No")
@@ -260,7 +272,7 @@ def render_result(result) -> None:
             st.markdown("#### Mutant proxy structure")
             st.caption("WT coordinates with residue identity remapped at the mutation site. No side-chain repacking is performed.")
             render_structure_panel(
-                structure_path=result.report_artifacts.mutant_structure_path,
+                structure_path=mutant_structure_path,
                 mutation_positions=mutation_positions,
                 low_confidence=[],
                 disulfide_positions=[],
@@ -298,11 +310,11 @@ def render_result(result) -> None:
             file_name=result.report_artifacts.pymol_script_path.name,
             mime="text/plain",
         )
-    if result.report_artifacts.mutant_structure_path is not None:
+    if mutant_structure_path is not None:
         st.download_button(
             "Download mutant proxy PDB",
-            data=result.report_artifacts.mutant_structure_path.read_bytes(),
-            file_name=result.report_artifacts.mutant_structure_path.name,
+            data=mutant_structure_path.read_bytes(),
+            file_name=mutant_structure_path.name,
             mime="chemical/x-pdb",
         )
 
@@ -311,8 +323,8 @@ def render_result(result) -> None:
 
 
 st.subheader("Run analysis")
-request = collect_request()
-if st.button("Run Analysis", type="primary", use_container_width=True):
+request, submitted = collect_request()
+if submitted:
     try:
         if not any([request.uniprot_id, request.sequence, request.fasta_path]):
             raise ValueError("Please provide a UniProt ID, a raw sequence, or a FASTA upload.")
