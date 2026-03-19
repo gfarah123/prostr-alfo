@@ -5,13 +5,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import py3Dmol
 import streamlit as st
 import streamlit.components.v1 as components
 
 from prostr_alfo.analysis.pipeline import AnalysisRequest, run_analysis
 from prostr_alfo.io.fasta import parse_fasta_text
 from prostr_alfo.io.input import infer_uniprot_id_from_header
+
+try:
+    import py3Dmol
+except ImportError:  # pragma: no cover - frontend fallback
+    py3Dmol = None
 
 
 st.set_page_config(page_title="prostr-alfo", layout="wide")
@@ -54,31 +58,39 @@ st.markdown(
 )
 
 
-def render_structure_view(result) -> None:
-    """Render an interactive 3D structure view."""
+def render_structure_panel(
+    *,
+    structure_path: Path | None,
+    mutation_positions: list[str],
+    low_confidence: list[str],
+    disulfide_positions: list[str],
+    mutant_mode: bool,
+) -> None:
+    """Render one interactive structure panel."""
 
-    if not result.structure_available or result.structure_analysis is None:
-        st.info("No AlphaFold structure is available for interactive visualization.")
+    if py3Dmol is None:
+        st.warning("py3Dmol is not installed, so the interactive 3D panel is disabled.")
         return
 
-    pdb_text = Path(result.structure_analysis.structure_path).read_text(encoding="utf-8")
+    if structure_path is None or not structure_path.exists():
+        st.info("This structure view is not available for the current run.")
+        return
+
+    pdb_text = structure_path.read_text(encoding="utf-8")
     view = py3Dmol.view(width=920, height=560)
     view.addModel(pdb_text, "pdb")
-    view.setStyle({}, {"cartoon": {"colorscheme": {"prop": "b", "gradient": "roygb", "min": 0, "max": 100}}})
+    if mutant_mode:
+        view.setStyle({}, {"cartoon": {"color": "lightblue"}})
+    else:
+        view.setStyle({}, {"cartoon": {"colorscheme": {"prop": "b", "gradient": "roygb", "min": 0, "max": 100}}})
 
-    low_confidence = [str(residue.sequence_position) for residue in result.structure_analysis.residues if residue.plddt is not None and residue.plddt < 50]
     if low_confidence:
         view.addStyle({"resi": ",".join(low_confidence)}, {"stick": {"color": "orange", "radius": 0.18}})
 
-    mutation_positions = [str(assessment.mutation.position) for assessment in result.mutation_assessments]
     if mutation_positions:
-        view.addStyle({"resi": ",".join(mutation_positions)}, {"sphere": {"color": "magenta", "radius": 0.75}})
+        mutation_color = "red" if mutant_mode else "magenta"
+        view.addStyle({"resi": ",".join(mutation_positions)}, {"sphere": {"color": mutation_color, "radius": 0.75}})
 
-    disulfide_positions = [
-        str(position)
-        for bond in result.structure_analysis.disulfide_bonds
-        for position in (bond.residue_a, bond.residue_b)
-    ]
     if disulfide_positions:
         view.addStyle({"resi": ",".join(disulfide_positions)}, {"stick": {"color": "yellow", "radius": 0.25}})
 
@@ -137,8 +149,8 @@ def render_result(result) -> None:
     else:
         st.warning("Structure-based statistics are unavailable for this run.")
 
-    tab_overview, tab_mutations, tab_structure, tab_report = st.tabs(
-        ["Overview", "Mutations", "3D Structure", "Report"]
+    tab_overview, tab_mutations, tab_evidence, tab_structure, tab_report = st.tabs(
+        ["Overview", "Mutations", "Variant Evidence", "3D Structures", "Report"]
     )
 
     with tab_overview:
@@ -178,8 +190,82 @@ def render_result(result) -> None:
         else:
             st.info("No mutations were requested.")
 
+    with tab_evidence:
+        if result.variant_evidence:
+            for evidence in result.variant_evidence:
+                st.markdown(f"### {evidence.mutation.code}")
+                info_a, info_b, info_c = st.columns(3)
+                info_a.metric("Exact curated match", "Yes" if evidence.matched else "No")
+                info_b.metric("Uncertainty", evidence.uncertainty)
+                info_c.metric("Clinical significance", ", ".join(evidence.clinical_significances) or "Unavailable")
+                st.write(evidence.evidence_summary)
+                st.write(f"Phenotype sufficiency note: {evidence.phenotype_sufficiency or 'Unavailable'}")
+                if evidence.frequency_summary:
+                    st.write(f"Frequency summary: {evidence.frequency_summary}")
+                if evidence.pathways:
+                    st.markdown("**Potentially affected pathways**")
+                    st.dataframe(
+                        [
+                            {"Pathway": pathway.name, "Source": pathway.source, "ID": pathway.pathway_id, "URL": pathway.url}
+                            for pathway in evidence.pathways
+                        ],
+                        use_container_width=True,
+                    )
+                if evidence.diseases:
+                    st.markdown("**Disease associations**")
+                    st.dataframe(
+                        [
+                            {
+                                "Disease": disease.name,
+                                "Description": disease.description or "No description available",
+                                "PMIDs": ", ".join(disease.evidence_pmids[:5]),
+                            }
+                            for disease in evidence.diseases
+                        ],
+                        use_container_width=True,
+                    )
+                if evidence.literature:
+                    st.markdown("**Linked papers**")
+                    for paper in evidence.literature:
+                        st.markdown(
+                            f"- [{paper.title}]({paper.url}) ({paper.journal or 'Journal unavailable'}, {paper.publication_date or 'date unavailable'})"
+                        )
+                st.divider()
+        else:
+            st.info("No external variant evidence was available for this run.")
+
     with tab_structure:
-        render_structure_view(result)
+        mutation_positions = [str(assessment.mutation.position) for assessment in result.mutation_assessments]
+        low_confidence = [
+            str(residue.sequence_position)
+            for residue in (result.structure_analysis.residues if result.structure_analysis is not None else [])
+            if residue.plddt is not None and residue.plddt < 50
+        ]
+        disulfide_positions = [
+            str(position)
+            for bond in (result.structure_analysis.disulfide_bonds if result.structure_analysis is not None else [])
+            for position in (bond.residue_a, bond.residue_b)
+        ]
+        column_wt, column_mutant = st.columns(2)
+        with column_wt:
+            st.markdown("#### Wild-type structure")
+            render_structure_panel(
+                structure_path=result.structure_analysis.structure_path if result.structure_analysis is not None else None,
+                mutation_positions=mutation_positions,
+                low_confidence=low_confidence,
+                disulfide_positions=disulfide_positions,
+                mutant_mode=False,
+            )
+        with column_mutant:
+            st.markdown("#### Mutant proxy structure")
+            st.caption("WT coordinates with residue identity remapped at the mutation site. No side-chain repacking is performed.")
+            render_structure_panel(
+                structure_path=result.report_artifacts.mutant_structure_path,
+                mutation_positions=mutation_positions,
+                low_confidence=[],
+                disulfide_positions=[],
+                mutant_mode=True,
+            )
 
     with tab_report:
         markdown_text = Path(result.report_artifacts.markdown_path).read_text(encoding="utf-8")
@@ -211,6 +297,13 @@ def render_result(result) -> None:
             data=result.report_artifacts.pymol_script_path.read_bytes(),
             file_name=result.report_artifacts.pymol_script_path.name,
             mime="text/plain",
+        )
+    if result.report_artifacts.mutant_structure_path is not None:
+        st.download_button(
+            "Download mutant proxy PDB",
+            data=result.report_artifacts.mutant_structure_path.read_bytes(),
+            file_name=result.report_artifacts.mutant_structure_path.name,
+            mime="chemical/x-pdb",
         )
 
     with st.expander("JSON summary"):

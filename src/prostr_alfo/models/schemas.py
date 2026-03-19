@@ -93,6 +93,49 @@ class MutationAssessment:
 
 
 @dataclass(slots=True)
+class PathwayRecord:
+    source: str
+    pathway_id: str
+    name: str
+    url: str
+
+
+@dataclass(slots=True)
+class LiteratureRecord:
+    pmid: str
+    title: str
+    journal: str | None
+    publication_date: str | None
+    authors: list[str] = field(default_factory=list)
+    url: str | None = None
+
+
+@dataclass(slots=True)
+class DiseaseAssociation:
+    name: str
+    description: str | None = None
+    database_references: list[dict[str, str]] = field(default_factory=list)
+    evidence_pmids: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class VariantEvidence:
+    mutation: Mutation
+    matched: bool
+    uncertainty: str
+    evidence_summary: str
+    clinical_significances: list[str] = field(default_factory=list)
+    consequence_type: str | None = None
+    frequency_summary: str | None = None
+    phenotype_sufficiency: str | None = None
+    pathways: list[PathwayRecord] = field(default_factory=list)
+    diseases: list[DiseaseAssociation] = field(default_factory=list)
+    literature: list[LiteratureRecord] = field(default_factory=list)
+    source_links: list[dict[str, str]] = field(default_factory=list)
+    prediction_summary: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class VariantRecord:
     name: str
     mutations: list[Mutation]
@@ -107,6 +150,7 @@ class ReportArtifacts:
     plot_path: Path | None
     pymol_script_path: Path | None
     registry_path: Path
+    mutant_structure_path: Path | None = None
 
 
 @dataclass(slots=True)
@@ -116,6 +160,7 @@ class AnalysisResult:
     structure_analysis: StructureAnalysis | None
     variants: list[VariantRecord]
     mutation_assessments: list[MutationAssessment]
+    variant_evidence: list[VariantEvidence]
     report_artifacts: ReportArtifacts
     references: list[dict[str, Any]]
     run_directory: Path
@@ -129,6 +174,7 @@ class AnalysisResult:
             "plot_path": str(self.report_artifacts.plot_path) if self.report_artifacts.plot_path else None,
             "pymol_script_path": str(self.report_artifacts.pymol_script_path) if self.report_artifacts.pymol_script_path else None,
             "registry_path": str(self.report_artifacts.registry_path),
+            "mutant_structure_path": str(self.report_artifacts.mutant_structure_path) if self.report_artifacts.mutant_structure_path else None,
         }
         if self.structure_analysis is not None:
             payload["structure_analysis"]["structure_path"] = str(self.structure_analysis.structure_path)

@@ -21,9 +21,10 @@
   - `A23V_C105S`
 - Mutation assessment using WT structure context
 - Heuristic mutation impact score with interpretable components
+- Curated external evidence lookup for pathways, disease associations, clinical significance, and linked papers
 - Report generation in Markdown and HTML
 - PyMOL script generation
-- Interactive Streamlit interface with an embedded 3D view
+- Interactive Streamlit interface with WT and mutant proxy 3D views
 - Pytest coverage for parsing, mutation application, caching, and mapping edge cases
 
 ## Installation
@@ -83,9 +84,11 @@ The frontend supports:
 - mutation input
 - pLDDT plot display
 - mutation summary table
-- interactive 3D structure view
+- variant evidence tab with pathways, disease associations, frequencies, and linked papers
+- side-by-side WT and mutant proxy structure views with mutation highlighting
 - report preview
 - downloads for HTML report, FASTA, PyMOL script, and variant registry
+- mutant proxy PDB download when available
 
 ## Example Workflow
 
@@ -100,6 +103,7 @@ prostr-alfo analyze --uniprot P69905 --mutations "M1V"
    - `report.md`
    - `report.html`
    - `plddt_profile.png`
+   - `mutant_proxy.pdb`
    - `view_structure.pml`
 4. Review generated FASTA files in `data/variants/<run_id>/`.
 5. Open the HTML report in a browser or use the Streamlit app for interactive inspection.
@@ -171,6 +175,10 @@ prostr-alfo/
   - charge change
   - hydrophobicity change
   - special residue rules for Gly, Pro, and Cys
+- Curated variant evidence uses:
+  - Reactome for protein-level pathway context
+  - EBI Proteins variation records for exact amino-acid substitutions when available
+  - PubMed citation metadata for linked papers
 
 ## Scientific References
 
@@ -185,9 +193,11 @@ The structured references are stored in [`src/prostr_alfo/reporting/references.j
 
 - Full structure retrieval depends on having a resolvable UniProt accession. Raw sequence and FASTA inputs without a matching accession can still be analyzed, but structure-dependent steps are skipped.
 - The mutation impact score is heuristic and should not be interpreted as a calibrated stability or pathogenicity predictor.
+- The mutant structure is a WT-coordinate proxy without side-chain repacking, minimization, or a new structure prediction.
 - The surface and contact metrics are geometric proxies, not molecular mechanics calculations.
 - DSSP annotations require a local DSSP executable installation.
 - Multi-chain biological assemblies are only handled at the single downloaded PDB level and are not reassembled from external complex predictions.
+- Linked papers can be disease- or gene-level support rather than dedicated residue-specific functional studies, and the report marks uncertainty explicitly when evidence is indirect or conflicting.
 
 ## Future Improvements
 

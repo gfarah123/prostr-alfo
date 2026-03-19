@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from prostr_alfo.analysis.evidence import collect_variant_evidence
 from prostr_alfo.analysis.features import analyze_structure
 from prostr_alfo.analysis.mutation import assess_mutations
 from prostr_alfo.config import Settings, get_settings
@@ -15,6 +16,7 @@ from prostr_alfo.reporting.plots import plot_plddt_profile
 from prostr_alfo.reporting.pymol import write_pymol_script
 from prostr_alfo.reporting.report import generate_reports, load_references
 from prostr_alfo.structure.alphafold import AlphaFoldClient, StructureNotFoundError
+from prostr_alfo.structure.mutant import create_mutant_proxy_structure
 from prostr_alfo.utils.paths import slugify
 from prostr_alfo.variants.mutations import create_variant_registry, parse_mutations
 
@@ -61,6 +63,7 @@ def run_analysis(request: AnalysisRequest, settings: Settings | None = None) -> 
     structure_note = None
     plot_path = None
     pymol_script_path = None
+    mutant_structure_path = None
 
     if protein_input.uniprot_id:
         client = AlphaFoldClient(settings=active_settings)
@@ -68,6 +71,15 @@ def run_analysis(request: AnalysisRequest, settings: Settings | None = None) -> 
             structure_path = client.get_structure_path(protein_input.uniprot_id, refresh=request.refresh_structure)
             structure_analysis = analyze_structure(structure_path, protein_input.sequence)
             structure_available = True
+            mutant_structure_path = create_mutant_proxy_structure(
+                structure_analysis=structure_analysis,
+                mutations=parsed_mutations,
+                output_path=run_directory / "mutant_proxy.pdb",
+            )
+            if mutant_structure_path is not None:
+                structure_analysis.notes.append(
+                    "A mutant proxy PDB was generated from WT coordinates without side-chain repacking or structural relaxation."
+                )
             plot_path = plot_plddt_profile(
                 structure_analysis=structure_analysis,
                 mutations=parsed_mutations,
@@ -76,6 +88,7 @@ def run_analysis(request: AnalysisRequest, settings: Settings | None = None) -> 
             pymol_script_path = write_pymol_script(
                 structure_analysis=structure_analysis,
                 mutations=parsed_mutations,
+                mutant_structure_path=mutant_structure_path,
                 output_path=run_directory / "view_structure.pml",
             )
         except StructureNotFoundError as exc:
@@ -89,18 +102,29 @@ def run_analysis(request: AnalysisRequest, settings: Settings | None = None) -> 
         structure_analysis.notes.append(structure_note)
 
     mutation_assessments = assess_mutations(parsed_mutations, structure_analysis)
+    variant_evidence = (
+        collect_variant_evidence(
+            accession=protein_input.uniprot_id,
+            mutations=parsed_mutations,
+            settings=active_settings,
+        )
+        if protein_input.uniprot_id and parsed_mutations
+        else []
+    )
     references = load_references(active_settings.references_path)
     markdown_path, html_path = generate_reports(
         protein_input=protein_input,
         structure_analysis=structure_analysis,
         variants=variants,
         mutation_assessments=mutation_assessments,
+        variant_evidence=variant_evidence,
         references=references,
         plot_path=plot_path,
         pymol_script_path=pymol_script_path,
         registry_path=registry_path,
         output_dir=run_directory,
         structure_note=structure_note,
+        mutant_structure_path=mutant_structure_path,
     )
 
     return AnalysisResult(
@@ -109,12 +133,14 @@ def run_analysis(request: AnalysisRequest, settings: Settings | None = None) -> 
         structure_analysis=structure_analysis,
         variants=variants,
         mutation_assessments=mutation_assessments,
+        variant_evidence=variant_evidence,
         report_artifacts=ReportArtifacts(
             markdown_path=markdown_path,
             html_path=html_path,
             plot_path=plot_path,
             pymol_script_path=pymol_script_path,
             registry_path=registry_path,
+            mutant_structure_path=mutant_structure_path,
         ),
         references=references,
         run_directory=run_directory,

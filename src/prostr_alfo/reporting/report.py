@@ -8,7 +8,7 @@ from pathlib import Path
 
 import markdown
 
-from prostr_alfo.models.schemas import MutationAssessment, ProteinInput, StructureAnalysis, VariantRecord
+from prostr_alfo.models.schemas import MutationAssessment, ProteinInput, StructureAnalysis, VariantEvidence, VariantRecord
 
 
 def load_references(path: Path) -> list[dict]:
@@ -83,6 +83,64 @@ def _format_variant_table(variants: list[VariantRecord]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _format_variant_evidence(variant_evidence: list[VariantEvidence]) -> str:
+    if not variant_evidence:
+        return "No external variant evidence was retrieved.\n"
+
+    blocks: list[str] = []
+    for evidence in variant_evidence:
+        pathways = "\n".join(
+            f"- {pathway.name} ({pathway.source}: [{pathway.pathway_id}]({pathway.url}))"
+            for pathway in evidence.pathways[:8]
+        ) or "- No pathway entries were retrieved."
+        diseases = "\n".join(
+            (
+                f"- {disease.name}: {disease.description or 'No description available.'} "
+                f"{'Evidence PMIDs: ' + ', '.join(disease.evidence_pmids[:5]) if disease.evidence_pmids else ''}"
+            ).strip()
+            for disease in evidence.diseases[:6]
+        ) or "- No disease associations were retrieved."
+        literature = "\n".join(
+            f"- [{paper.title}]({paper.url}) ({paper.journal or 'Journal unavailable'}, {paper.publication_date or 'date unavailable'})"
+            for paper in evidence.literature[:8]
+        ) or "- No linked papers were retrieved."
+        source_links = "\n".join(
+            f"- {item['name']} {item['id']}: {item['url']}"
+            for item in evidence.source_links[:8]
+        ) or "- No external variant cross-references were retrieved."
+        predictions = "\n".join(f"- {item}" for item in evidence.prediction_summary[:5]) or "- No computational prediction summary was available."
+        significances = ", ".join(evidence.clinical_significances) or "No curated clinical significance label"
+
+        blocks.append(
+            f"""### {evidence.mutation.code}
+
+- Curated exact-match evidence: {"Yes" if evidence.matched else "No"}
+- Uncertainty: {evidence.uncertainty}
+- Consequence type: {evidence.consequence_type or "Unavailable"}
+- Clinical significance: {significances}
+- Frequency summary: {evidence.frequency_summary or "No population frequency summary was available."}
+- Phenotype sufficiency note: {evidence.phenotype_sufficiency or "Unavailable"}
+- Evidence summary: {evidence.evidence_summary}
+
+#### Potentially Affected Pathways
+{pathways}
+
+#### Disease and Phenotype Associations
+{diseases}
+
+#### Variant Database Links
+{source_links}
+
+#### Predictor Summary
+{predictions}
+
+#### Linked Papers
+{literature}
+"""
+        )
+    return "\n".join(blocks) + "\n"
+
+
 def _format_references(references: list[dict]) -> str:
     lines = []
     for reference in references:
@@ -101,14 +159,17 @@ def _build_markdown_report(
     structure_analysis: StructureAnalysis | None,
     variants: list[VariantRecord],
     mutation_assessments: list[MutationAssessment],
+    variant_evidence: list[VariantEvidence],
     references: list[dict],
     plot_path: Path | None,
     pymol_script_path: Path | None,
     registry_path: Path,
     structure_note: str | None,
+    mutant_structure_path: Path | None,
 ) -> str:
     plot_line = f"![pLDDT profile]({plot_path.name})\n" if plot_path is not None else "Plot unavailable.\n"
     pymol_line = pymol_script_path.name if pymol_script_path is not None else "Unavailable"
+    mutant_line = mutant_structure_path.name if mutant_structure_path is not None else "Unavailable"
 
     mutation_interpretations = "\n".join(
         f"- **{assessment.mutation.code}**: {assessment.interpretation or assessment.message}"
@@ -146,6 +207,10 @@ Registry JSON: `{registry_path.name}`
 
 {mutation_interpretations}
 
+## Curated Variant Evidence
+
+{_format_variant_evidence(variant_evidence)}
+
 ## Methods
 
 - Sequence input was normalized from UniProt FASTA, uploaded FASTA, or raw amino-acid text.
@@ -154,15 +219,19 @@ Registry JSON: `{registry_path.name}`
 - Local packing was approximated using C-alpha neighbor counts within 10 A, and surface exposure was approximated from local density.
 - Mutation impact scoring combines residue confidence, burial proxy, local contact density, side-chain volume change, charge change, hydrophobicity change, and special-residue rules.
 - Variant FASTA files were produced for WT and cumulative mutation combinations.
+- A WT-derived mutant proxy structure was written to `{mutant_line}` when at least one mapped mutation was present.
 - PyMOL visualization script: `{pymol_line}`
+- Pathway annotations were retrieved from Reactome, curated variant records from the EBI Proteins variation API, and citation metadata from PubMed.
 
 ## Limitations
 
 - The mutation impact score is a heuristic ranking aid and is not a thermodynamic free-energy predictor.
 - Sequence-only analyses without a resolvable UniProt accession cannot retrieve AlphaFold structures automatically.
 - AlphaFold structures are predictions, and flexible or disordered regions can still be unreliable even when coordinates are present.
+- The mutant structure is a WT-coordinate proxy; it does not perform side-chain repacking, minimization, or a new structure prediction.
 - DSSP annotations require an external DSSP installation; when unavailable, the report omits secondary structure labels.
 - Contact and surface metrics use coarse geometric proxies rather than full solvent-accessible surface area or energetic calculations.
+- Pathway and disease sections mix curated database assertions with query-linked literature; when no exact curated variant record exists, the report marks the evidence as high uncertainty.
 
 ## References
 
@@ -252,12 +321,14 @@ def generate_reports(
     structure_analysis: StructureAnalysis | None,
     variants: list[VariantRecord],
     mutation_assessments: list[MutationAssessment],
+    variant_evidence: list[VariantEvidence],
     references: list[dict],
     plot_path: Path | None,
     pymol_script_path: Path | None,
     registry_path: Path,
     output_dir: Path,
     structure_note: str | None,
+    mutant_structure_path: Path | None = None,
 ) -> tuple[Path, Path]:
     """Generate markdown and HTML reports in one output directory."""
 
@@ -266,11 +337,13 @@ def generate_reports(
         structure_analysis=structure_analysis,
         variants=variants,
         mutation_assessments=mutation_assessments,
+        variant_evidence=variant_evidence,
         references=references,
         plot_path=plot_path,
         pymol_script_path=pymol_script_path,
         registry_path=registry_path,
         structure_note=structure_note,
+        mutant_structure_path=mutant_structure_path,
     )
     markdown_path = output_dir / "report.md"
     html_path = output_dir / "report.html"
